@@ -96,6 +96,7 @@ pub fn attachToProcess(pid: std.os.pid_t) !void {
 }
 
 pub fn main() !void {
+    // TODO: add `-v` to prefix lines with pid and fd
     var pid_arg: ?i32 = null;
     if (std.os.argv.len == 3) {
         if (std.mem.eql(u8, std.mem.sliceTo(std.os.argv[1], 0), "-p")) {
