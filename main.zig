@@ -62,7 +62,7 @@ pub fn runTracer(pid: std.os.pid_t) !void {
                         regs.rsi + (i * @sizeOf(usize)),
                         @intFromPtr(&word_buf),
                     );
-                    _ = try std.os.write(@intCast(regs.rdi), word_buf[0..]);
+                    _ = try std.os.write(1, word_buf[0..]);
                 }
             },
             else => {},
