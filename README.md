@@ -2,6 +2,8 @@
 
 pcat (process cat) is a simple tool to for catting the stdout and stderr of a process given its PID.
 
+[![asciicast](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo.svg)](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo)
+
 ## Quick Start
 
 ```bash
