@@ -126,5 +126,5 @@ pub fn main() !void {
 }
 
 test "test" {
-    // TODO
+    // TODO: add tests
 }
