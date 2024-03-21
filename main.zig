@@ -28,7 +28,6 @@ pub fn waitpid(pid: std.os.pid_t, flags: u32) WaitError!std.os.WaitPidResult {
 
 pub fn runTracer(pid: std.os.pid_t) !void {
     var counter: u64 = 0;
-    var buf: [4 * 1024]u8 = undefined;
 
     while (true) {
         const wait_result = try waitpid(pid, 0);
@@ -63,13 +62,8 @@ pub fn runTracer(pid: std.os.pid_t) !void {
                         regs.rsi + (i * @sizeOf(usize)),
                         @intFromPtr(&word_buf),
                     );
-                    // TODO: handle if i*@sizeOf(usize) + word_buf[0..].len > buf.len
-                    @memcpy(
-                        buf[i * @sizeOf(usize) .. i * @sizeOf(usize) + word_buf[0..].len],
-                        word_buf[0..],
-                    );
+                    _ = try std.os.write(@intCast(regs.rdi), word_buf[0..]);
                 }
-                std.debug.print("{s}", .{buf[0..regs.rdx]});
             },
             else => {},
         }
