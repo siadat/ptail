@@ -53,7 +53,9 @@ pub fn runTracer(pid: std.os.pid_t) !void {
                 }
 
                 var word_buf: [@sizeOf(usize):0]u8 = undefined;
-                for (0..1 + (regs.rdx - 1) / @sizeOf(usize)) |i| {
+                const word_count = 1 + (regs.rdx - 1) / @sizeOf(usize);
+                var read_bytes: u64 = 0;
+                for (0..word_count) |i| {
                     // TODO: is there a way to do this with fewer syscalls?
                     // read a word
                     try std.os.ptrace(
@@ -62,7 +64,8 @@ pub fn runTracer(pid: std.os.pid_t) !void {
                         regs.rsi + (i * @sizeOf(usize)),
                         @intFromPtr(&word_buf),
                     );
-                    _ = try std.os.write(1, word_buf[0..]);
+                    _ = try std.os.write(1, word_buf[0..@min(regs.rdx - read_bytes, @sizeOf(usize))]);
+                    read_bytes = read_bytes + @sizeOf(usize); // this is wrong for the last word, but it is fine, because we will break out of the loop
                 }
             },
             else => {},
