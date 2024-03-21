@@ -97,7 +97,7 @@ pub fn main() !void {
     }
 
     if (pid_arg) |pid| {
-        // TODO: I cannot ctrl-c the process being traced after attaching to it.
+        // TODO: I cannot ctrl-c the process being traced after attaching to it, also nvim doesn't resize or exit properly
         // TODO: follow subsequent forks
         try attachToProcess(pid);
         runTracer(pid) catch |err| switch (err) {
