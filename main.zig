@@ -44,30 +44,32 @@ pub fn runTracer(pid: std.os.pid_t) !void {
         const syscall: std.os.linux.syscalls.X64 = @enumFromInt(regs.orig_rax); // TODO: switch on target architecture?
         switch (syscall) {
             .write => {
+                if (regs.rdi != 1 and regs.rdi != 2) {
+                    // not stdout or stderr
+                    continue;
+                }
                 defer counter += 1;
                 if (counter % 2 == 1) {
-                    // apparently each syscall is called twice?
                     continue;
                 }
 
                 var word_buf: [@sizeOf(usize):0]u8 = undefined;
                 for (0..1 + (regs.rdx - 1) / @sizeOf(usize)) |i| {
                     // read a word
+                    // TODO: is there a way to do this with less syscalls?
                     try std.os.ptrace(
                         std.os.linux.PTRACE.PEEKDATA,
                         pid,
                         regs.rsi + (i * @sizeOf(usize)),
                         @intFromPtr(&word_buf),
                     );
+                    // TODO: handle if i*@sizeOf(usize) + word_buf[0..].len > buf.len
                     @memcpy(
                         buf[i * @sizeOf(usize) .. i * @sizeOf(usize) + word_buf[0..].len],
                         word_buf[0..],
                     );
                 }
                 std.debug.print("{s}", .{buf[0..regs.rdx]});
-                if (regs.rdx > buf.len) {
-                    std.debug.print("...[truncated]\n", .{});
-                }
             },
             else => {},
         }
@@ -101,9 +103,11 @@ pub fn main() !void {
     }
 
     if (pid_arg) |pid| {
+        // TODO: I cannot the pid process program after attaching to it.
+        // TODO: follow subsequent forks
         try attachToProcess(pid);
         runTracer(pid) catch |err| switch (err) {
-            error.ProcessDoesNotExist => std.log.err("Process does not exist. Hint: if pid exists, you might need to run this command with sudo?", .{}),
+            error.ProcessDoesNotExist => std.log.err("Process does not exist. Hint: if pid exists, you might need to run this command as root", .{}),
             else => unreachable,
         };
     } else {
