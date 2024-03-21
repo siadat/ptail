@@ -55,7 +55,7 @@ pub fn runTracer(pid: std.os.pid_t) !void {
                 var word_buf: [@sizeOf(usize):0]u8 = undefined;
                 for (0..1 + (regs.rdx - 1) / @sizeOf(usize)) |i| {
                     // read a word
-                    // TODO: is there a way to do this with less syscalls?
+                    // TODO: is there a way to do this with fewer syscalls?
                     try std.os.ptrace(
                         std.os.linux.PTRACE.PEEKDATA,
                         pid,
