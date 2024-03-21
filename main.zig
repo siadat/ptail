@@ -74,6 +74,10 @@ pub fn runTracer(pid: std.os.pid_t) !void {
 }
 
 fn runChild(program: [*:0]u8, argv_slice: [][*:0]const u8) !void {
+    if (argv_slice.len > 1024) {
+        std.log.err("Too many arguments", .{});
+        return;
+    }
     var argv: [1024:null]?[*:0]const u8 = undefined;
     for (argv_slice, 0..) |arg, i| {
         argv[i] = arg;
