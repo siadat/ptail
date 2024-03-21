@@ -52,7 +52,7 @@ pub fn runTracer(pid: std.os.pid_t) !void {
                     continue;
                 }
 
-                var word_buf: [@sizeOf(usize):0]u8 = undefined;
+                var word_buf: [@sizeOf(usize)]u8 = undefined;
                 const word_count = 1 + (regs.rdx - 1) / @sizeOf(usize);
                 var read_bytes: u64 = 0;
                 for (0..word_count) |i| {
