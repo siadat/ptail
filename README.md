@@ -1,6 +1,6 @@
 # pcat
 
-pcat (process cat) is a simple toy to for catting the stdout and stderr of a process given its PID.
+pcat (process cat) is a simple toy for catting the stdout and stderr of a process given its PID.
 
 [![asciicast](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo.svg)](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo)
 
