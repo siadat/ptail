@@ -4,6 +4,12 @@ pcat (process cat) is a simple toy for cat'ing the stdout and stderr of a proces
 
 [![asciicast](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo.svg)](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo)
 
+## Features
+
+- Trace a child process
+- Trace other processes by pid (requires root)
+- Follow forked and cloned processes (WIP)
+
 ## Quick Start
 
 ```bash
