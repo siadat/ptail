@@ -43,17 +43,16 @@ const Logger = struct {
     }
 };
 
-pub fn runTracer(original_child_pid: std.os.pid_t) !void {
-    _ = try waitpid(original_child_pid, 0);
+pub fn runTracer(child_pid: std.os.pid_t) !void {
+    _ = try waitpid(child_pid, 0);
     try std.os.ptrace(
         std.os.linux.PTRACE.SETOPTIONS,
-        original_child_pid,
+        child_pid,
         0,
         c.PTRACE_O_TRACEVFORK | c.PTRACE_O_TRACEFORK | c.PTRACE_O_TRACECLONE | c.PTRACE_O_TRACESYSGOOD | c.PTRACE_O_TRACEEXEC | c.PTRACE_O_TRACEEXIT,
     );
 
     var writeSyscallEnter = true;
-    const child_pid = original_child_pid;
     const logger = Logger{ .pid = child_pid };
     while (true) {
         logger.debug("WHILE-BEGIN", .{});
