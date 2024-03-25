@@ -267,21 +267,33 @@ test "test" {
     //   date
     //   bash -c 'date > /dev/null'
     //   bash -c 'date > /dev/null & uname > /dev/null & wait"
-    const child_pid = try std.os.fork();
-    if (child_pid == 0) {
+    const tracee_pid = try std.os.fork();
+
+    // Not sure why explicit exits are necessary, without them the processes do not exit.
+    defer std.os.exit(0);
+    errdefer std.os.exit(1);
+
+    if (tracee_pid == 0) {
         try std.os.ptrace(std.os.linux.PTRACE.TRACEME, 0, 0, 0);
         try std.os.raise(std.os.linux.SIG.STOP);
         _ = try std.os.write(1, "Hello, ");
-        _ = try std.os.write(1, "world!\n");
-        std.os.exit(0);
+        _ = try std.os.write(1, "from parent!\n");
+        const child_pid = try std.os.fork();
+        if (child_pid == 0) {
+            _ = try std.os.write(1, "Hello, ");
+            _ = try std.os.write(1, "from child!\n");
+        }
     } else {
-        try std.os.ptrace(std.os.linux.PTRACE.ATTACH, child_pid, 0, 0);
+        try std.os.ptrace(std.os.linux.PTRACE.ATTACH, tracee_pid, 0, 0);
         var writer = BufferedWriter.init(std.testing.allocator);
         defer writer.deinit();
 
-        try runTracer(child_pid, &writer);
-        const want = "Hello, world!\n";
-        try std.testing.expect(std.mem.eql(u8, want[0..], writer.buf.items));
-        std.os.exit(0);
+        try runTracer(tracee_pid, &writer);
+        const want = "Hello, from parent!\nHello, from child!\n";
+        std.testing.expect(std.mem.eql(u8, want[0..], writer.buf.items)) catch |err| {
+            std.debug.print("want: <{s}>\n", .{want[0..]});
+            std.debug.print("got: <{s}>\n", .{writer.buf.items});
+            return err;
+        };
     }
 }
