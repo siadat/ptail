@@ -78,22 +78,23 @@ const FileLogger = struct {
     }
 };
 
-pub fn runTracer(child_pid: std.os.pid_t, writer: anytype) !void {
-    const logger = try Logger.init(child_pid);
+pub fn runTracer(original_child_pid: std.os.pid_t, writer: anytype) !void {
+    const logger = try Logger.init(original_child_pid);
     defer logger.deinit();
 
     logger.debug("runTracer:BEGIN tracer_pid={}", .{std.os.linux.getpid()});
     defer logger.debug("runTracer:END tracer_pid={}", .{std.os.linux.getpid()});
 
-    _ = try waitpid(-1, 0);
+    _ = try waitpid(original_child_pid, 0);
     logger.debug("initial waitpid returned", .{});
 
     try std.os.ptrace(
         std.os.linux.PTRACE.SETOPTIONS,
-        child_pid,
+        original_child_pid,
         0,
         c.PTRACE_O_TRACEVFORK | c.PTRACE_O_TRACEFORK | c.PTRACE_O_TRACECLONE | c.PTRACE_O_TRACESYSGOOD | c.PTRACE_O_TRACEEXEC | c.PTRACE_O_TRACEEXIT,
     );
+    var child_pid = original_child_pid;
 
     var writeSyscallEnter = true;
     while (true) {
@@ -106,7 +107,7 @@ pub fn runTracer(child_pid: std.os.pid_t, writer: anytype) !void {
 
         if (std.os.linux.W.IFEXITED(wait_result.status)) {
             const exit_code = std.os.linux.W.EXITSTATUS(wait_result.status);
-            logger.debug("exit code was {}", .{exit_code});
+            logger.debug("exit code was {} for pid={}", .{ exit_code, wait_result.pid });
             return;
         }
         if (std.os.linux.W.IFSIGNALED(wait_result.status)) {
@@ -142,7 +143,7 @@ pub fn runTracer(child_pid: std.os.pid_t, writer: anytype) !void {
             );
             logger.debug("new_pid={}", .{new_pid});
             // NOTE: Experiment finding showed that wait_result.pid can be different from the original child_pid
-            try runTracer(@intCast(new_pid), writer);
+            child_pid = @intCast(new_pid);
 
             // TODO: we know this is a fork, vfork, or clone (and not a write
             // syscall), so we can skip the rest and continue
@@ -325,4 +326,6 @@ test "test" {
             std.os.ptrace(std.os.linux.PTRACE.DETACH, tracee_pid, 0, 0) catch unreachable;
         }
     }
+    // TODO: test child that exits, eg 'program ; program'
+
 }
