@@ -107,11 +107,11 @@ pub fn runTracer(child_pid: std.os.pid_t, writer: anytype) !void {
         if (std.os.linux.W.IFEXITED(wait_result.status)) {
             const exit_code = std.os.linux.W.EXITSTATUS(wait_result.status);
             logger.debug("exit code was {}", .{exit_code});
-            break;
+            return;
         }
         if (std.os.linux.W.IFSIGNALED(wait_result.status)) {
             logger.debug("signaled", .{});
-            break;
+            return;
         }
 
         const forked = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_FORK << 8));
@@ -187,7 +187,7 @@ pub fn runTracer(child_pid: std.os.pid_t, writer: anytype) !void {
     }
 }
 
-fn runChild(program: [*:0]u8, argv_slice: [][*:0]const u8) !void {
+fn runChild(program: [*:0]const u8, argv_slice: [][*:0]const u8) !void {
     if (argv_slice.len > 1024) {
         std.log.err("Too many arguments", .{});
         return;
@@ -262,38 +262,67 @@ pub fn main() !void {
 }
 
 test "test" {
-    // TODO: add tests
-    // Commands to test:
-    //   date
-    //   bash -c 'date > /dev/null'
-    //   bash -c 'date > /dev/null & uname > /dev/null & wait"
-    const tracee_pid = try std.os.fork();
-
     // Not sure why explicit exits are necessary, without them the processes do not exit.
+    // Also, if I exit in each test, then other tests don't run, so had to put all tests in one test function.
     defer std.os.exit(0);
     errdefer std.os.exit(1);
 
-    if (tracee_pid == 0) {
-        try std.os.ptrace(std.os.linux.PTRACE.TRACEME, 0, 0, 0);
-        try std.os.raise(std.os.linux.SIG.STOP);
-        _ = try std.os.write(1, "Hello, ");
-        _ = try std.os.write(1, "from parent!\n");
-        const child_pid = try std.os.fork();
-        if (child_pid == 0) {
-            _ = try std.os.write(1, "Hello, ");
-            _ = try std.os.write(1, "from child!\n");
-        }
-    } else {
-        try std.os.ptrace(std.os.linux.PTRACE.ATTACH, tracee_pid, 0, 0);
-        var writer = BufferedWriter.init(std.testing.allocator);
-        defer writer.deinit();
+    {
+        const tracee_pid = try std.os.fork();
 
-        try runTracer(tracee_pid, &writer);
-        const want = "Hello, from parent!\nHello, from child!\n";
-        std.testing.expect(std.mem.eql(u8, want[0..], writer.buf.items)) catch |err| {
-            std.debug.print("want: <{s}>\n", .{want[0..]});
-            std.debug.print("got: <{s}>\n", .{writer.buf.items});
-            return err;
-        };
+        // Not sure why explicit exits are necessary, without them the processes do not exit.
+
+        if (tracee_pid == 0) {
+            defer std.os.exit(0);
+            try std.os.ptrace(std.os.linux.PTRACE.TRACEME, 0, 0, 0);
+            try std.os.raise(std.os.linux.SIG.STOP);
+            _ = try std.os.write(1, "Hello, ");
+            _ = try std.os.write(1, "from parent!\n");
+            const child_pid = try std.os.fork();
+            if (child_pid == 0) {
+                _ = try std.os.write(1, "Hello, ");
+                _ = try std.os.write(1, "from child!\n");
+            }
+        } else {
+            try std.os.ptrace(std.os.linux.PTRACE.ATTACH, tracee_pid, 0, 0);
+            var writer = BufferedWriter.init(std.testing.allocator);
+            defer writer.deinit();
+
+            try runTracer(tracee_pid, &writer);
+            const want = "Hello, from parent!\nHello, from child!\n";
+            std.testing.expect(std.mem.eql(u8, want[0..], writer.buf.items)) catch |err| {
+                std.debug.print("want: <{s}>\n", .{want[0..]});
+                std.debug.print("got: <{s}>\n", .{writer.buf.items});
+                return err;
+            };
+        }
+    }
+    {
+        const tracee_pid = try std.os.fork();
+        if (tracee_pid == 0) {
+            defer std.os.exit(0);
+            const program = "/bin/uname";
+            const program_arg = @as([*:0]const u8, program[0..]);
+            var args = [_][*:0]const u8{
+                program_arg,
+            };
+            try runChild(
+                program,
+                args[0..],
+            );
+        } else {
+            try std.os.ptrace(std.os.linux.PTRACE.ATTACH, tracee_pid, 0, 0);
+            var writer = BufferedWriter.init(std.testing.allocator);
+            defer writer.deinit();
+
+            try runTracer(tracee_pid, &writer);
+            const want = "Linux\n";
+            std.testing.expect(std.mem.eql(u8, want[0..], writer.buf.items)) catch |err| {
+                std.debug.print("want: <{s}>\n", .{want[0..]});
+                std.debug.print("got: <{s}>\n", .{writer.buf.items});
+                return err;
+            };
+            std.os.ptrace(std.os.linux.PTRACE.DETACH, tracee_pid, 0, 0) catch unreachable;
+        }
     }
 }
