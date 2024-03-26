@@ -85,7 +85,7 @@ pub fn runTracer(child_pid: std.os.pid_t, writer: anytype) !void {
     logger.debug("runTracer:BEGIN tracer_pid={}", .{std.os.linux.getpid()});
     defer logger.debug("runTracer:END tracer_pid={}", .{std.os.linux.getpid()});
 
-    _ = try waitpid(child_pid, 0);
+    _ = try waitpid(-1, 0);
     logger.debug("initial waitpid returned", .{});
 
     try std.os.ptrace(
@@ -101,7 +101,7 @@ pub fn runTracer(child_pid: std.os.pid_t, writer: anytype) !void {
         defer logger.debug("while:END", .{});
 
         try std.os.ptrace(std.os.linux.PTRACE.SYSCALL, child_pid, 0, 0);
-        const wait_result = try waitpid(child_pid, 0);
+        const wait_result = try waitpid(-1, 0);
         logger.debug("wait_result: pid={} status={b}", .{ wait_result.pid, wait_result.status });
 
         if (std.os.linux.W.IFEXITED(wait_result.status)) {
@@ -112,6 +112,21 @@ pub fn runTracer(child_pid: std.os.pid_t, writer: anytype) !void {
         if (std.os.linux.W.IFSIGNALED(wait_result.status)) {
             logger.debug("signaled", .{});
             return;
+        }
+
+        var regs: c.user_regs_struct = undefined;
+        try std.os.ptrace(std.os.linux.PTRACE.GETREGS, child_pid, 0, @intFromPtr(&regs));
+        var is_syscall = false;
+        inline for (@typeInfo(std.os.linux.syscalls.X64).Enum.fields) |field| {
+            if (field.value == regs.orig_rax) {
+                logger.debug("looks like a syscall {s} ({})", .{ field.name, field.value });
+                is_syscall = true;
+                break;
+            }
+        }
+        if (!is_syscall) {
+            logger.debug("NOT a syscall, orig_rax = {}", .{regs.orig_rax});
+            continue;
         }
 
         const forked = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_FORK << 8));
@@ -134,25 +149,10 @@ pub fn runTracer(child_pid: std.os.pid_t, writer: anytype) !void {
             // continue;
         }
 
-        var regs: c.user_regs_struct = undefined;
-        try std.os.ptrace(std.os.linux.PTRACE.GETREGS, child_pid, 0, @intFromPtr(&regs));
-        var is_syscall = false;
-        inline for (@typeInfo(std.os.linux.syscalls.X64).Enum.fields) |field| {
-            if (field.value == regs.orig_rax) {
-                logger.debug("looks like a syscall {s} ({})", .{ field.name, field.value });
-                is_syscall = true;
-                break;
-            }
-        }
-        if (!is_syscall) {
-            logger.debug("NOT a syscall, orig_rax = {}", .{regs.orig_rax});
-            continue;
-        }
-
         const syscall: std.os.linux.syscalls.X64 = @enumFromInt(regs.orig_rax); // TODO: switch on target architecture?
         switch (syscall) {
             .write => {
-                logger.debug("write", .{});
+                logger.debug("write({d}, ...)", .{regs.rdi});
                 defer writeSyscallEnter = !writeSyscallEnter;
                 if (!writeSyscallEnter) {
                     // we are exiting the syscall, however
