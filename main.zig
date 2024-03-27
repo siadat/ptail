@@ -78,6 +78,16 @@ const FileLogger = struct {
     }
 };
 
+fn getSyscallReg(pid: std.os.pid_t) !std.os.linux.syscalls.X64 {
+    var regs: c.user_regs_struct = undefined;
+    try std.os.ptrace(std.os.linux.PTRACE.GETREGS, pid, 0, @intFromPtr(&regs));
+    return @enumFromInt(regs.orig_rax);
+}
+
+fn isSyscall(wait_result: std.os.WaitPidResult) bool {
+    return std.os.linux.W.IFSTOPPED(wait_result.status) and std.os.linux.W.STOPSIG(wait_result.status) & 0x80 != 0;
+}
+
 pub fn runTracer(original_child_pid: std.os.pid_t, writer: anytype) !void {
     const logger = try Logger.init(original_child_pid);
     defer logger.deinit();
@@ -85,27 +95,41 @@ pub fn runTracer(original_child_pid: std.os.pid_t, writer: anytype) !void {
     logger.debug("runTracer:BEGIN tracer_pid={}", .{std.os.linux.getpid()});
     defer logger.debug("runTracer:END tracer_pid={}", .{std.os.linux.getpid()});
 
-    _ = try waitpid(original_child_pid, 0);
-    logger.debug("initial waitpid returned", .{});
-
+    const first_wait_result = try waitpid(original_child_pid, 0);
+    // NOTE: SETOPTIONS should be done after wait (when child process is stopped?)
+    logger.debug("initial wait pid returned pid={} status={b}", .{ first_wait_result.pid, first_wait_result.status });
     try std.os.ptrace(
         std.os.linux.PTRACE.SETOPTIONS,
-        original_child_pid,
+        first_wait_result.pid,
         0,
-        c.PTRACE_O_TRACEVFORK | c.PTRACE_O_TRACEFORK | c.PTRACE_O_TRACECLONE | c.PTRACE_O_TRACESYSGOOD | c.PTRACE_O_TRACEEXEC | c.PTRACE_O_TRACEEXIT,
+        c.PTRACE_O_TRACEVFORK | c.PTRACE_O_TRACEFORK | c.PTRACE_O_TRACECLONE | c.PTRACE_O_TRACESYSGOOD,
     );
-    var child_pid = original_child_pid;
+
+    if (isSyscall(first_wait_result)) {
+        var regs: c.user_regs_struct = undefined;
+        try std.os.ptrace(std.os.linux.PTRACE.GETREGS, first_wait_result.pid, 0, @intFromPtr(&regs));
+        const syscall_num: std.os.linux.syscalls.X64 = @enumFromInt(regs.orig_rax);
+        logger.debug("initial wait pid looks like a syscall {s}(...)", .{@tagName(syscall_num)});
+        // logger.debug("initial wait pid looks like a syscall {d}(...)", .{regs.orig_rax});
+    } else {
+        logger.debug("NOT A SYSCALL", .{});
+    }
+
+    const child_pid = original_child_pid;
 
     var writeSyscallEnter = true;
     while (true) {
-        logger.debug("while:BEGIN", .{});
-        defer logger.debug("while:END", .{});
+        // logger.debug("======== while:BEGIN", .{});
+        // defer logger.debug("while:END", .{});
 
         try std.os.ptrace(std.os.linux.PTRACE.SYSCALL, child_pid, 0, 0);
+        logger.debug("BEFORE", .{});
         const wait_result = try waitpid(-1, 0);
-        logger.debug("wait_result: pid={} status={b}", .{ wait_result.pid, wait_result.status });
+        logger.debug("AFTER", .{});
+        // logger.debug("wait_result: pid={} status={b}", .{ wait_result.pid, wait_result.status });
 
         if (std.os.linux.W.IFEXITED(wait_result.status)) {
+            // TODO: exit syscall also is stopped at entry and exit, so becareful
             const exit_code = std.os.linux.W.EXITSTATUS(wait_result.status);
             logger.debug("exit code was {} for pid={}", .{ exit_code, wait_result.pid });
             return;
@@ -117,37 +141,14 @@ pub fn runTracer(original_child_pid: std.os.pid_t, writer: anytype) !void {
 
         var regs: c.user_regs_struct = undefined;
         try std.os.ptrace(std.os.linux.PTRACE.GETREGS, child_pid, 0, @intFromPtr(&regs));
-        var is_syscall = false;
-        inline for (@typeInfo(std.os.linux.syscalls.X64).Enum.fields) |field| {
-            if (field.value == regs.orig_rax) {
-                logger.debug("looks like a syscall {s} ({})", .{ field.name, field.value });
-                is_syscall = true;
-                break;
-            }
-        }
-        if (!is_syscall) {
-            logger.debug("NOT a syscall, orig_rax = {}", .{regs.orig_rax});
-            continue;
-        }
 
-        const forked = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_FORK << 8));
-        const vforked = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_VFORK << 8));
-        const cloned = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_CLONE << 8));
-        if (forked or vforked or cloned) {
-            var new_pid: usize = 0;
-            try std.os.ptrace(
-                std.os.linux.PTRACE.GETEVENTMSG,
-                child_pid,
-                0,
-                @intFromPtr(&new_pid),
-            );
-            logger.debug("new_pid={}", .{new_pid});
-            // NOTE: Experiment finding showed that wait_result.pid can be different from the original child_pid
-            child_pid = @intCast(new_pid);
-
-            // TODO: we know this is a fork, vfork, or clone (and not a write
-            // syscall), so we can skip the rest and continue
-            // continue;
+        if (!isSyscall(wait_result)) {
+            const stopped = std.os.linux.W.IFSTOPPED(wait_result.status);
+            const stopsig = std.os.linux.W.STOPSIG(wait_result.status) & 0x80 != 0;
+            logger.debug("NOT A SYSCALL {} {} {b}", .{ stopped, stopsig, wait_result.status });
+            //continue;
+        } else {
+            logger.debug("syscall enum {s}(...)", .{@tagName(try getSyscallReg(child_pid))});
         }
 
         const syscall: std.os.linux.syscalls.X64 = @enumFromInt(regs.orig_rax); // TODO: switch on target architecture?
@@ -178,12 +179,33 @@ pub fn runTracer(original_child_pid: std.os.pid_t, writer: anytype) !void {
                         regs.rsi + (i * @sizeOf(usize)),
                         @intFromPtr(&word_buf),
                     );
-                    logger.debug("word_buf={s}", .{word_buf});
+                    // logger.debug("word_buf={s}", .{word_buf});
                     _ = try writer.write(1, word_buf[0..@min(regs.rdx - read_bytes, @sizeOf(usize))]);
                     read_bytes = read_bytes + @sizeOf(usize); // this is wrong for the last word, but it is fine, because we will break out of the loop
                 }
             },
             else => {},
+        }
+        const forked = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_FORK << 8));
+        const vforked = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_VFORK << 8));
+        const cloned = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_CLONE << 8));
+        logger.debug("forked={} vforked={} cloned={}", .{ forked, vforked, cloned });
+        if (forked or vforked or cloned) {
+            var new_pid: usize = 0;
+            try std.os.ptrace(
+                std.os.linux.PTRACE.GETEVENTMSG,
+                child_pid,
+                0,
+                @intFromPtr(&new_pid),
+            );
+            logger.debug("new_pid={}", .{new_pid});
+            // NOTE: Experiment finding showed that wait_result.pid can be different from the original child_pid
+            // child_pid = @intCast(new_pid);
+            try runTracer(@intCast(new_pid), writer);
+
+            // TODO: we know this is a fork, vfork, or clone (and not a write
+            // syscall), so we can skip the rest and continue
+            // continue;
         }
     }
 }
