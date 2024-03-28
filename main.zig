@@ -3,6 +3,7 @@ const c = @cImport({
     @cInclude("signal.h");
     @cInclude("sys/user.h");
     @cInclude("sys/ptrace.h");
+    @cInclude("sys/wait.h");
 });
 const builtin = @import("builtin");
 
@@ -91,6 +92,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
 
     var pending_child_pids = std.ArrayList(std.os.pid_t).init(allocator);
     defer pending_child_pids.deinit();
+    // try pending_child_pids.append(original_child_pid);
 
     logger.debug("runTracer:BEGIN original_child_pid is {}", .{original_child_pid});
     defer logger.debug("runTracer:END original_child_pid was {}", .{original_child_pid});
@@ -121,8 +123,14 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
         logger.debug("======== while:BEGIN", .{});
         defer logger.debug("while:END", .{});
 
+        // if (pending_child_pids.items.len == 0) {
+        //     logger.debug("no more pids to trace", .{});
+        //     return;
+        // }
+        // child_pid = pending_child_pids.items[0];
         try std.os.ptrace(std.os.linux.PTRACE.SYSCALL, child_pid, 0, 0);
-        const wait_result = try waitpid(-1, 0);
+
+        const wait_result = try waitpid(-1, 0); // c.__WALL | c.WNOHANG);
         child_pid = wait_result.pid;
 
         if (std.os.linux.W.IFEXITED(wait_result.status)) {
