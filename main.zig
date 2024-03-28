@@ -90,11 +90,10 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
     const logger = try Logger.init();
     defer logger.deinit();
 
-    var pending_child_pids = std.ArrayList(std.os.pid_t).init(allocator);
-    defer pending_child_pids.deinit();
-    // try pending_child_pids.append(original_child_pid);
+    var pending_pids = std.AutoHashMap(std.os.pid_t, void).init(allocator);
+    defer pending_pids.deinit();
+    try pending_pids.put(original_child_pid, void{});
 
-    logger.debug("runTracer:BEGIN original_child_pid is {}", .{original_child_pid});
     defer logger.debug("runTracer:END original_child_pid was {}", .{original_child_pid});
 
     const first_wait_result = try waitpid(-1, std.os.linux.W.UNTRACED);
@@ -116,36 +115,43 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
         logger.debug("NOT A SYSCALL", .{});
     }
 
-    var child_pid = original_child_pid;
-
     var writeSyscallEnter = true;
     while (true) {
         logger.debug("======== while:BEGIN", .{});
         defer logger.debug("while:END", .{});
 
-        // if (pending_child_pids.items.len == 0) {
-        //     logger.debug("no more pids to trace", .{});
-        //     return;
-        // }
-        // child_pid = pending_child_pids.items[0];
-        try std.os.ptrace(std.os.linux.PTRACE.SYSCALL, child_pid, 0, 0);
+        if (pending_pids.count() == 0) {
+            logger.debug("no more pids to trace", .{});
+            return;
+        }
 
+        var child_pid: std.os.pid_t = 0;
+        {
+            var it = pending_pids.iterator();
+            while (it.next()) |kv| {
+                // TODO: check which child is ready for a PTRACE.SYSCALL
+                child_pid = kv.key_ptr.*;
+                break;
+            }
+        }
+
+        logger.debug("Sent SYSCALL to {}", .{child_pid});
+
+        try std.os.ptrace(std.os.linux.PTRACE.SYSCALL, child_pid, 0, 0);
+        logger.debug("BEFORE waitpid", .{});
         const wait_result = try waitpid(-1, 0); // c.__WALL | c.WNOHANG);
+        logger.debug("AFTER waitpid", .{});
         child_pid = wait_result.pid;
 
         if (std.os.linux.W.IFEXITED(wait_result.status)) {
             // NOTE: exit syscall also is stopped twice I think (ie entry and exit), so be careful
             const exit_code = std.os.linux.W.EXITSTATUS(wait_result.status);
             logger.debug("exit code was {} for pid={}", .{ exit_code, wait_result.pid });
+
             try std.os.ptrace(std.os.linux.PTRACE.DETACH, wait_result.pid, 0, 0);
-            const pending_pid = pending_child_pids.popOrNull();
-            if (pending_pid == null) {
-                // no more pid to trace
-                return;
-            } else {
-                child_pid = pending_pid.?;
-                continue;
-            }
+
+            _ = pending_pids.remove(wait_result.pid);
+            continue;
         }
         if (std.os.linux.W.IFSIGNALED(wait_result.status)) {
             logger.debug("signaled", .{});
@@ -210,15 +216,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
                 @intFromPtr(&new_pid),
             );
             logger.debug("new_pid={}", .{new_pid});
-            try pending_child_pids.append(child_pid);
-            // NOTE: Experiment finding showed that wait_result.pid can be different from the original child_pid
-            child_pid = @intCast(new_pid);
-            try std.os.ptrace(
-                std.os.linux.PTRACE.SETOPTIONS,
-                child_pid,
-                0,
-                c.PTRACE_O_TRACEVFORK | c.PTRACE_O_TRACEFORK | c.PTRACE_O_TRACECLONE | c.PTRACE_O_TRACESYSGOOD | c.PTRACE_O_TRACEEXEC,
-            );
+            try pending_pids.put(@intCast(new_pid), void{});
         }
     }
 }
