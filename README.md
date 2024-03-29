@@ -41,7 +41,7 @@ sudo ./zig-out/bin/pcat -p $(ps -C "ping" -o pid= | head -1)
 
 [![asciicast](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo.svg)](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo)
 
-## Quick Start
+## Build
 
 ```bash
 zig build
