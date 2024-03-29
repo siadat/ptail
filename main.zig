@@ -82,7 +82,7 @@ const FileLogger = struct {
 };
 
 pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.posix.pid_t, writer: anytype) !void {
-    const logger = try Logger.init(.debug);
+    const logger = try Logger.init(.err);
     defer logger.deinit();
 
     var pending_pids = std.AutoHashMap(std.posix.pid_t, void).init(allocator);
@@ -92,8 +92,8 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.posix.pid
 
     const first_wait_result = try waitpid(-1, 0);
     try pending_pids.put(first_wait_result.pid, void{});
-    // NOTE: SETOPTIONS should be done after wait (when child process is stopped?)
-    // NOTE: SETOPTIONS is only called once by strace.
+    // NOTE: SETOPTIONS should be done after wait (when child process is stopped)
+    // NOTE: SETOPTIONS is only called once by strace
     logger.debug("initial wait pid returned pid={} status={b}", .{ first_wait_result.pid, first_wait_result.status });
     try std.posix.ptrace(
         std.os.linux.PTRACE.SETOPTIONS,
@@ -155,6 +155,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.posix.pid
             @intFromPtr(&syscall_info),
         );
 
+        // Now, the actual write() syscall :)
         if (syscall_info.op == c.PTRACE_SYSCALL_INFO_ENTRY) {
             const syscall: std.os.linux.syscalls.X64 = @enumFromInt(syscall_info.unnamed_0.entry.nr); // TODO: switch on target architecture?
             switch (syscall) {
@@ -185,6 +186,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.posix.pid
             }
         }
 
+        // Follow forks
         const forked = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_FORK << 8));
         const vforked = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_VFORK << 8));
         const cloned = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_CLONE << 8));
