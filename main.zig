@@ -1,4 +1,4 @@
-// 0.12.0-dev.3284+153ba46a5
+// 0.12.0-dev.3496+a2df84d0f
 const std = @import("std");
 const c = @cImport({
     @cInclude("signal.h");
@@ -14,13 +14,13 @@ const WaitError = error{
     Other,
 };
 
-// This is the same as std.os.waitpid, but it returns errors, instead of unreachable
-pub fn waitpid(pid: std.os.pid_t, flags: u32) WaitError!std.os.WaitPidResult {
+// This is the same as std.posix.waitpid, but it returns errors, instead of unreachable
+pub fn waitpid(pid: std.posix.pid_t, flags: u32) WaitError!std.posix.WaitPidResult {
     var status: if (builtin.link_libc) c_int else u32 = undefined;
     while (true) {
-        const rc = std.os.system.waitpid(pid, &status, @intCast(flags));
-        switch (std.os.errno(rc)) {
-            .SUCCESS => return std.os.WaitPidResult{
+        const rc = std.posix.system.waitpid(pid, &status, @intCast(flags));
+        switch (std.posix.errno(rc)) {
+            .SUCCESS => return .{
                 .pid = @intCast(rc),
                 .status = @bitCast(status),
             },
@@ -55,10 +55,10 @@ const Logger = struct {
 const FileLogger = struct {
     const Self = @This();
 
-    child_pid: std.os.pid_t,
+    child_pid: std.posix.pid_t,
     file: std.fs.File,
 
-    fn init(child_pid: std.os.pid_t) !Self {
+    fn init(child_pid: std.posix.pid_t) !Self {
         const file = try std.fs.cwd().createFile("/home/sina/src/pcat/debug.log", .{});
         return Self{
             .file = file,
@@ -77,13 +77,13 @@ const FileLogger = struct {
     }
 };
 
-fn getSyscallReg(pid: std.os.pid_t) !std.os.linux.syscalls.X64 {
+fn getSyscallReg(pid: std.posix.pid_t) !std.os.linux.syscalls.X64 {
     var regs: c.user_regs_struct = undefined;
-    try std.os.ptrace(std.os.linux.PTRACE.GETREGS, pid, 0, @intFromPtr(&regs));
+    try std.posix.ptrace(std.os.linux.PTRACE.GETREGS, pid, 0, @intFromPtr(&regs));
     return @enumFromInt(regs.orig_rax);
 }
 
-fn isSyscall(logger: *const Logger, wait_result: std.os.WaitPidResult) !bool {
+fn isSyscall(logger: *const Logger, wait_result: std.posix.WaitPidResult) !bool {
     const stopped = std.os.linux.W.IFSTOPPED(wait_result.status);
     const stopsig = std.os.linux.W.STOPSIG(wait_result.status) & 0x80 != 0;
     if (stopped and stopsig) {
@@ -95,11 +95,11 @@ fn isSyscall(logger: *const Logger, wait_result: std.os.WaitPidResult) !bool {
     }
 }
 
-pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t, writer: anytype) !void {
+pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.posix.pid_t, writer: anytype) !void {
     const logger = try Logger.init();
     defer logger.deinit();
 
-    var pending_pids = std.AutoHashMap(std.os.pid_t, void).init(allocator);
+    var pending_pids = std.AutoHashMap(std.posix.pid_t, void).init(allocator);
     defer pending_pids.deinit();
 
     defer logger.debug("runTracer:END original_child_pid was {}", .{original_child_pid});
@@ -109,7 +109,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
     // NOTE: SETOPTIONS should be done after wait (when child process is stopped?)
     // NOTE: SETOPTIONS is only called once by strace.
     logger.debug("initial wait pid returned pid={} status={b}", .{ first_wait_result.pid, first_wait_result.status });
-    try std.os.ptrace(
+    try std.posix.ptrace(
         std.os.linux.PTRACE.SETOPTIONS,
         first_wait_result.pid,
         0,
@@ -117,7 +117,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
     );
 
     _ = try isSyscall(&logger, first_wait_result);
-    try std.os.ptrace(std.os.linux.PTRACE.SYSCALL, first_wait_result.pid, 0, 0);
+    try std.posix.ptrace(std.os.linux.PTRACE.SYSCALL, first_wait_result.pid, 0, 0);
 
     var writeSyscallEnter = true;
     while (true) {
@@ -129,8 +129,8 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
             return;
         }
 
-        var child_pid: std.os.pid_t = 0;
-        var wait_result: std.os.WaitPidResult = undefined;
+        var child_pid: std.posix.pid_t = 0;
+        var wait_result: std.posix.WaitPidResult = undefined;
         while (true) {
             wait_result = try waitpid(-1, 0);
             logger.debug("waitpid(-1, ...) returned pid={} status={b}", .{ wait_result.pid, wait_result.status });
@@ -144,14 +144,14 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
             return;
         }
 
-        defer std.os.ptrace(std.os.linux.PTRACE.SYSCALL, child_pid, 0, 0) catch unreachable;
+        defer std.posix.ptrace(std.os.linux.PTRACE.SYSCALL, child_pid, 0, 0) catch unreachable;
 
         if (std.os.linux.W.IFEXITED(wait_result.status)) {
             // NOTE: exit syscall also is stopped twice I think (ie entry and exit), so be careful
             const exit_code = std.os.linux.W.EXITSTATUS(wait_result.status);
             logger.debug("exit code was {} for pid={}", .{ exit_code, wait_result.pid });
 
-            try std.os.ptrace(std.os.linux.PTRACE.DETACH, wait_result.pid, 0, 0);
+            try std.posix.ptrace(std.os.linux.PTRACE.DETACH, wait_result.pid, 0, 0);
 
             _ = pending_pids.remove(wait_result.pid);
             continue;
@@ -163,7 +163,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
 
         // TODO: GETREGS is not used by strace apparently, it is using the newer PTRACE_GET_SYSCALL_INFO instead
         var regs: c.user_regs_struct = undefined;
-        try std.os.ptrace(std.os.linux.PTRACE.GETREGS, child_pid, 0, @intFromPtr(&regs));
+        try std.posix.ptrace(std.os.linux.PTRACE.GETREGS, child_pid, 0, @intFromPtr(&regs));
 
         _ = try isSyscall(&logger, wait_result);
 
@@ -189,7 +189,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
                 for (0..word_count) |i| {
                     // read a word
                     // TODO: is there a way to do this with fewer syscalls?
-                    try std.os.ptrace(
+                    try std.posix.ptrace(
                         std.os.linux.PTRACE.PEEKDATA,
                         child_pid,
                         regs.rsi + (i * @sizeOf(usize)),
@@ -206,7 +206,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
         const cloned = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_CLONE << 8));
         if (forked or vforked or cloned) {
             var new_pid: usize = 0;
-            try std.os.ptrace(
+            try std.posix.ptrace(
                 std.os.linux.PTRACE.GETEVENTMSG,
                 child_pid,
                 0,
@@ -230,18 +230,18 @@ fn runChild(program: [*:0]const u8, argv_slice: [][*:0]const u8) !void {
     argv[argv_slice.len] = null;
     const envp: [*:null]?[*:0]const u8 = @ptrCast(std.os.environ.ptr);
 
-    try std.os.ptrace(std.os.linux.PTRACE.TRACEME, 0, 0, 0);
+    try std.posix.ptrace(std.os.linux.PTRACE.TRACEME, 0, 0, 0);
     // NOTE: strace also performs a raise(SIGSTOP) only once
-    try std.os.raise(std.os.linux.SIG.STOP);
-    const err = std.os.execvpeZ(program, &argv, envp);
+    try std.posix.raise(std.os.linux.SIG.STOP);
+    const err = std.posix.execvpeZ(program, &argv, envp);
 
     std.log.err("execvpeZ error: {s}", .{@errorName(err)});
 }
 
 const SyscallWriter = struct {
     const Self = @This();
-    fn write(_: *Self, _: std.os.fd_t, bytes: []const u8) std.os.WriteError!usize {
-        return std.os.write(1, bytes);
+    fn write(_: *Self, _: std.posix.fd_t, bytes: []const u8) std.posix.WriteError!usize {
+        return std.posix.write(1, bytes);
     }
 };
 const BufferedWriter = struct {
@@ -256,7 +256,7 @@ const BufferedWriter = struct {
     fn deinit(self: *Self) void {
         defer self.buf.deinit();
     }
-    fn write(self: *Self, _: std.os.fd_t, bytes: []const u8) std.os.WriteError!usize {
+    fn write(self: *Self, _: std.posix.fd_t, bytes: []const u8) std.posix.WriteError!usize {
         return self.buf.writer().write(bytes) catch unreachable;
     }
 };
@@ -275,21 +275,21 @@ pub fn main() !void {
 
     if (pid_arg) |pid| {
         // TODO: I cannot ctrl-c the process being traced after attaching to it, also nvim doesn't resize or exit properly
-        try std.os.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0);
+        try std.posix.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0);
         var writer = SyscallWriter{};
         runTracer(allocator, pid, &writer) catch |err| switch (err) {
             error.ProcessDoesNotExist => std.log.err("Process does not exist. Hint: if pid exists, you might need to run this command as root", .{}),
             else => unreachable,
         };
     } else {
-        const child_pid = try std.os.fork();
+        const child_pid = try std.posix.fork();
         if (child_pid == 0) {
             try runChild(
                 std.os.argv[1],
                 std.os.argv[1..],
             );
         } else {
-            try std.os.ptrace(std.os.linux.PTRACE.ATTACH, child_pid, 0, 0);
+            try std.posix.ptrace(std.os.linux.PTRACE.ATTACH, child_pid, 0, 0);
             var writer = SyscallWriter{};
             try runTracer(allocator, child_pid, &writer);
         }
@@ -309,17 +309,17 @@ test "test" {
 
         if (tracee_pid == 0) {
             defer std.os.exit(0);
-            try std.os.ptrace(std.os.linux.PTRACE.TRACEME, 0, 0, 0);
+            try std.posix.ptrace(std.os.linux.PTRACE.TRACEME, 0, 0, 0);
             try std.os.raise(std.os.linux.SIG.STOP);
-            _ = try std.os.write(1, "Hello, ");
-            _ = try std.os.write(1, "from parent!\n");
+            _ = try std.posix.write(1, "Hello, ");
+            _ = try std.posix.write(1, "from parent!\n");
             const child_pid = try std.os.fork();
             if (child_pid == 0) {
-                _ = try std.os.write(1, "Hello, ");
-                _ = try std.os.write(1, "from child!\n");
+                _ = try std.posix.write(1, "Hello, ");
+                _ = try std.posix.write(1, "from child!\n");
             }
         } else {
-            try std.os.ptrace(std.os.linux.PTRACE.ATTACH, tracee_pid, 0, 0);
+            try std.posix.ptrace(std.os.linux.PTRACE.ATTACH, tracee_pid, 0, 0);
             var writer = BufferedWriter.init(std.testing.allocator);
             defer writer.deinit();
 
@@ -346,7 +346,7 @@ test "test" {
                 args[0..],
             );
         } else {
-            try std.os.ptrace(std.os.linux.PTRACE.ATTACH, tracee_pid, 0, 0);
+            try std.posix.ptrace(std.os.linux.PTRACE.ATTACH, tracee_pid, 0, 0);
             var writer = BufferedWriter.init(std.testing.allocator);
             defer writer.deinit();
 
@@ -357,7 +357,7 @@ test "test" {
                 std.debug.print("got: <{s}>\n", .{writer.buf.items});
                 return err;
             };
-            std.os.ptrace(std.os.linux.PTRACE.DETACH, tracee_pid, 0, 0) catch unreachable;
+            std.posix.ptrace(std.os.linux.PTRACE.DETACH, tracee_pid, 0, 0) catch unreachable;
         }
     }
     // TODO: test child that exits, eg 'program ; program'
