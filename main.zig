@@ -92,11 +92,11 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
 
     var pending_pids = std.AutoHashMap(std.os.pid_t, void).init(allocator);
     defer pending_pids.deinit();
-    try pending_pids.put(original_child_pid, void{});
 
     defer logger.debug("runTracer:END original_child_pid was {}", .{original_child_pid});
 
-    const first_wait_result = try waitpid(-1, std.os.linux.W.UNTRACED);
+    const first_wait_result = try waitpid(-1, std.os.linux.W.UNTRACED); // TODO why UNTRACED?
+    try pending_pids.put(first_wait_result.pid, void{});
     // NOTE: SETOPTIONS should be done after wait (when child process is stopped?)
     logger.debug("initial wait pid returned pid={} status={b}", .{ first_wait_result.pid, first_wait_result.status });
     try std.os.ptrace(
@@ -114,6 +114,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
     } else {
         logger.debug("NOT A SYSCALL", .{});
     }
+    try std.os.ptrace(std.os.linux.PTRACE.SYSCALL, first_wait_result.pid, 0, 0);
 
     var writeSyscallEnter = true;
     while (true) {
@@ -126,22 +127,29 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
         }
 
         var child_pid: std.os.pid_t = 0;
-        {
-            var it = pending_pids.iterator();
-            while (it.next()) |kv| {
-                // TODO: check which child is ready for a PTRACE.SYSCALL
-                child_pid = kv.key_ptr.*;
+        var wait_result: std.os.WaitPidResult = undefined;
+        while (true) {
+            // TODO: check which child is ready for a PTRACE.SYSCALL?
+            wait_result = try waitpid(-1, c.WNOHANG);
+            logger.debug("trying waitpid(-1) returned pid={} status={b}", .{ wait_result.pid, wait_result.status });
+            if (wait_result.pid != 0) {
+                child_pid = wait_result.pid;
                 break;
             }
         }
+        if (child_pid == 0) {
+            logger.debug("Exiting becaues child_pid=0", .{});
+            return;
+        }
 
-        logger.debug("Sent SYSCALL to {}", .{child_pid});
+        //logger.debug("Sending SYSCALL to {}", .{child_pid});
+        // try std.os.ptrace(std.os.linux.PTRACE.SYSCALL, child_pid, 0, 0);
+        defer std.os.ptrace(std.os.linux.PTRACE.SYSCALL, child_pid, 0, 0) catch unreachable;
 
-        try std.os.ptrace(std.os.linux.PTRACE.SYSCALL, child_pid, 0, 0);
-        logger.debug("BEFORE waitpid", .{});
-        const wait_result = try waitpid(-1, 0); // c.__WALL | c.WNOHANG);
-        logger.debug("AFTER waitpid", .{});
-        child_pid = wait_result.pid;
+        //logger.debug("BEFORE waitpid", .{});
+        //const wait_result = try waitpid(child_pid, 0); // c.__WALL | c.WNOHANG);
+        //logger.debug("AFTER waitpid", .{});
+        //child_pid = wait_result.pid;
 
         if (std.os.linux.W.IFEXITED(wait_result.status)) {
             // NOTE: exit syscall also is stopped twice I think (ie entry and exit), so be careful
