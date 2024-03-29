@@ -283,21 +283,21 @@ pub fn main() !void {
 test "test" {
     // Not sure why explicit exits are necessary, without them the processes do not exit.
     // Also, if I exit in each test, then other tests don't run, so had to put all tests in one test function.
-    defer std.os.exit(0);
-    errdefer std.os.exit(1);
+    defer std.posix.exit(0);
+    errdefer std.posix.exit(1);
 
     {
-        const tracee_pid = try std.os.fork();
+        const tracee_pid = try std.posix.fork();
 
         // Not sure why explicit exits are necessary, without them the processes do not exit.
 
         if (tracee_pid == 0) {
-            defer std.os.exit(0);
+            defer std.posix.exit(0);
             try std.posix.ptrace(std.os.linux.PTRACE.TRACEME, 0, 0, 0);
-            try std.os.raise(std.os.linux.SIG.STOP);
+            try std.posix.raise(std.os.linux.SIG.STOP);
             _ = try std.posix.write(1, "Hello, ");
             _ = try std.posix.write(1, "from parent!\n");
-            const child_pid = try std.os.fork();
+            const child_pid = try std.posix.fork();
             if (child_pid == 0) {
                 _ = try std.posix.write(1, "Hello, ");
                 _ = try std.posix.write(1, "from child!\n");
@@ -317,9 +317,9 @@ test "test" {
         }
     }
     {
-        const tracee_pid = try std.os.fork();
+        const tracee_pid = try std.posix.fork();
         if (tracee_pid == 0) {
-            defer std.os.exit(0);
+            defer std.posix.exit(0);
             const program = "/bin/uname";
             const program_arg = @as([*:0]const u8, program[0..]);
             var args = [_][*:0]const u8{
