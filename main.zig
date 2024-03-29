@@ -82,8 +82,16 @@ fn getSyscallReg(pid: std.os.pid_t) !std.os.linux.syscalls.X64 {
     return @enumFromInt(regs.orig_rax);
 }
 
-fn isSyscall(wait_result: std.os.WaitPidResult) bool {
-    return std.os.linux.W.IFSTOPPED(wait_result.status) and std.os.linux.W.STOPSIG(wait_result.status) & 0x80 != 0;
+fn isSyscall(logger: *const Logger, wait_result: std.os.WaitPidResult) !bool {
+    const stopped = std.os.linux.W.IFSTOPPED(wait_result.status);
+    const stopsig = std.os.linux.W.STOPSIG(wait_result.status) & 0x80 != 0;
+    if (stopped and stopsig) {
+        logger.debug("syscall {s}(...)", .{@tagName(try getSyscallReg(wait_result.pid))});
+        return true;
+    } else {
+        logger.debug("not a syscall {} {} {b}", .{ stopped, stopsig, wait_result.status });
+        return false;
+    }
 }
 
 pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t, writer: anytype) !void {
@@ -95,7 +103,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
 
     defer logger.debug("runTracer:END original_child_pid was {}", .{original_child_pid});
 
-    const first_wait_result = try waitpid(-1, std.os.linux.W.UNTRACED); // TODO why UNTRACED?
+    const first_wait_result = try waitpid(-1, 0);
     try pending_pids.put(first_wait_result.pid, void{});
     // NOTE: SETOPTIONS should be done after wait (when child process is stopped?)
     // NOTE: SETOPTIONS is only called once by strace.
@@ -107,14 +115,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
         c.PTRACE_O_TRACEVFORK | c.PTRACE_O_TRACEFORK | c.PTRACE_O_TRACECLONE | c.PTRACE_O_TRACESYSGOOD | c.PTRACE_O_TRACEEXEC,
     );
 
-    if (isSyscall(first_wait_result)) {
-        var regs: c.user_regs_struct = undefined;
-        try std.os.ptrace(std.os.linux.PTRACE.GETREGS, first_wait_result.pid, 0, @intFromPtr(&regs));
-        const syscall_num: std.os.linux.syscalls.X64 = @enumFromInt(regs.orig_rax);
-        logger.debug("initial wait pid looks like a syscall {s}(...)", .{@tagName(syscall_num)});
-    } else {
-        logger.debug("NOT A SYSCALL", .{});
-    }
+    _ = try isSyscall(&logger, first_wait_result);
     try std.os.ptrace(std.os.linux.PTRACE.SYSCALL, first_wait_result.pid, 0, 0);
 
     var writeSyscallEnter = true;
@@ -131,25 +132,18 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
         var wait_result: std.os.WaitPidResult = undefined;
         while (true) {
             wait_result = try waitpid(-1, 0);
-            logger.debug("trying waitpid(-1) returned pid={} status={b}", .{ wait_result.pid, wait_result.status });
+            logger.debug("waitpid(-1, ...) returned pid={} status={b}", .{ wait_result.pid, wait_result.status });
             if (wait_result.pid != 0) {
                 child_pid = wait_result.pid;
                 break;
             }
         }
         if (child_pid == 0) {
-            logger.debug("Exiting becaues child_pid=0", .{});
+            logger.debug("exiting because child_pid=0", .{});
             return;
         }
 
-        //logger.debug("Sending SYSCALL to {}", .{child_pid});
-        // try std.os.ptrace(std.os.linux.PTRACE.SYSCALL, child_pid, 0, 0);
         defer std.os.ptrace(std.os.linux.PTRACE.SYSCALL, child_pid, 0, 0) catch unreachable;
-
-        //logger.debug("BEFORE waitpid", .{});
-        //const wait_result = try waitpid(child_pid, 0); // c.__WALL | c.WNOHANG);
-        //logger.debug("AFTER waitpid", .{});
-        //child_pid = wait_result.pid;
 
         if (std.os.linux.W.IFEXITED(wait_result.status)) {
             // NOTE: exit syscall also is stopped twice I think (ie entry and exit), so be careful
@@ -170,13 +164,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
         var regs: c.user_regs_struct = undefined;
         try std.os.ptrace(std.os.linux.PTRACE.GETREGS, child_pid, 0, @intFromPtr(&regs));
 
-        if (isSyscall(wait_result)) {
-            logger.debug("syscall enum {s}(...)", .{@tagName(try getSyscallReg(child_pid))});
-        } else {
-            const stopped = std.os.linux.W.IFSTOPPED(wait_result.status);
-            const stopsig = std.os.linux.W.STOPSIG(wait_result.status) & 0x80 != 0;
-            logger.debug("NOT A SYSCALL {} {} {b}", .{ stopped, stopsig, wait_result.status });
-        }
+        _ = try isSyscall(&logger, wait_result);
 
         const syscall: std.os.linux.syscalls.X64 = @enumFromInt(regs.orig_rax); // TODO: switch on target architecture?
         switch (syscall) {
@@ -206,7 +194,6 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
                         regs.rsi + (i * @sizeOf(usize)),
                         @intFromPtr(&word_buf),
                     );
-                    // logger.debug("word_buf={s}", .{word_buf});
                     _ = try writer.write(1, word_buf[0..@min(regs.rdx - read_bytes, @sizeOf(usize))]);
                     read_bytes = read_bytes + @sizeOf(usize); // this is wrong for the last word, but it is fine, because we will break out of the loop
                 }
