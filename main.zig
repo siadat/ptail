@@ -35,16 +35,20 @@ pub fn waitpid(pid: std.posix.pid_t, flags: u32) WaitError!std.posix.WaitPidResu
 const Logger = struct {
     const Self = @This();
     const stderr = std.io.getStdErr().writer();
-    fn init() !Self {
+    level: std.log.Level,
+    fn init(level: std.log.Level) !Self {
         return Self{
-            //
+            .level = level,
         };
     }
     fn deinit(_: Self) void {
         // noop
     }
 
-    fn debug(_: Self, comptime format: []const u8, args: anytype) void {
+    fn debug(self: Self, comptime format: []const u8, args: anytype) void {
+        if (self.level != .debug) {
+            return;
+        }
         var bw = std.io.bufferedWriter(stderr);
         const writer = bw.writer();
         std.fmt.format(writer, format ++ "\n", args) catch return;
@@ -96,7 +100,7 @@ fn isSyscall(logger: *const Logger, wait_result: std.posix.WaitPidResult) !bool 
 }
 
 pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.posix.pid_t, writer: anytype) !void {
-    const logger = try Logger.init();
+    const logger = try Logger.init(.debug);
     defer logger.deinit();
 
     var pending_pids = std.AutoHashMap(std.posix.pid_t, void).init(allocator);
