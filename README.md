@@ -4,13 +4,10 @@ pcat (process cat) is a simple tool for cat'ing the stdout and stderr of a proce
 
 ## Usage
 
-There are two ways to use pcat (similarly to strace): with PID, or directly with the command you want to inspect.
+There are two ways to use pcat (similarly to strace): pcat an exiting process (with PID), or pcat a new process (with a command).
 
 ```bash
 pcat -p PID
-```
-
-```bash
 pcat COMMAND [ARGS...]
 ```
 
