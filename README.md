@@ -19,7 +19,7 @@ pcat COMMAND [ARGS...]
 ### Monitor new process
 
 ```bash
-pcat ping localhost
+pcat /usr/bin/bash -c 'ping localhost > /dev/null'
 ```
 
 ### Monitor existing process
