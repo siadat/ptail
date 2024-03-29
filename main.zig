@@ -81,24 +81,6 @@ const FileLogger = struct {
     }
 };
 
-fn getSyscallReg(pid: std.posix.pid_t) !std.os.linux.syscalls.X64 {
-    var regs: c.user_regs_struct = undefined;
-    try std.posix.ptrace(std.os.linux.PTRACE.GETREGS, pid, 0, @intFromPtr(&regs));
-    return @enumFromInt(regs.orig_rax);
-}
-
-fn isSyscall(logger: *const Logger, wait_result: std.posix.WaitPidResult) !bool {
-    const stopped = std.os.linux.W.IFSTOPPED(wait_result.status);
-    const stopsig = std.os.linux.W.STOPSIG(wait_result.status) & 0x80 != 0;
-    if (stopped and stopsig) {
-        logger.debug("syscall {s}(...)", .{@tagName(try getSyscallReg(wait_result.pid))});
-        return true;
-    } else {
-        logger.debug("not a syscall {} {} {b}", .{ stopped, stopsig, wait_result.status });
-        return false;
-    }
-}
-
 pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.posix.pid_t, writer: anytype) !void {
     const logger = try Logger.init(.debug);
     defer logger.deinit();
@@ -120,10 +102,8 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.posix.pid
         c.PTRACE_O_TRACEVFORK | c.PTRACE_O_TRACEFORK | c.PTRACE_O_TRACECLONE | c.PTRACE_O_TRACESYSGOOD | c.PTRACE_O_TRACEEXEC,
     );
 
-    _ = try isSyscall(&logger, first_wait_result);
     try std.posix.ptrace(std.os.linux.PTRACE.SYSCALL, first_wait_result.pid, 0, 0);
 
-    var writeSyscallEnter = true;
     while (true) {
         logger.debug("======== while:BEGIN", .{});
         defer logger.debug("while:END", .{});
@@ -165,46 +145,46 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.posix.pid
             return;
         }
 
-        // TODO: GETREGS is not used by strace apparently, it is using the newer PTRACE_GET_SYSCALL_INFO instead
-        var regs: c.user_regs_struct = undefined;
-        try std.posix.ptrace(std.os.linux.PTRACE.GETREGS, child_pid, 0, @intFromPtr(&regs));
+        // NOTE: GETREGS is not used by strace, it is using the newer PTRACE_GET_SYSCALL_INFO when available,
+        // The info request is available in Linux 5.3+, as implemented in https://github.com/torvalds/linux/commit/201766a20e30f982ccfe36bebfad9602c3ff574a
+        var syscall_info: c.struct___ptrace_syscall_info = undefined;
+        try std.posix.ptrace(
+            std.os.linux.PTRACE.GET_SYSCALL_INFO,
+            child_pid,
+            @sizeOf(@TypeOf(syscall_info)),
+            @intFromPtr(&syscall_info),
+        );
 
-        _ = try isSyscall(&logger, wait_result);
+        if (syscall_info.op == c.PTRACE_SYSCALL_INFO_ENTRY) {
+            const syscall: std.os.linux.syscalls.X64 = @enumFromInt(syscall_info.unnamed_0.entry.nr); // TODO: switch on target architecture?
+            switch (syscall) {
+                .write => {
+                    if (syscall_info.unnamed_0.entry.args[0] != 1 and syscall_info.unnamed_0.entry.args[0] != 2) {
+                        // not stdout or stderr
+                        continue;
+                    }
 
-        const syscall: std.os.linux.syscalls.X64 = @enumFromInt(regs.orig_rax); // TODO: switch on target architecture?
-        switch (syscall) {
-            .write => {
-                logger.debug("write({d}, ...)", .{regs.rdi});
-                defer writeSyscallEnter = !writeSyscallEnter;
-                if (!writeSyscallEnter) {
-                    // we are exiting the syscall, however
-                    // we have already done our work on syscall entry
-                    continue;
-                }
-
-                if (regs.rdi != 1 and regs.rdi != 2) {
-                    // not stdout or stderr
-                    continue;
-                }
-
-                var word_buf: [@sizeOf(usize)]u8 = undefined;
-                const word_count = 1 + (regs.rdx - 1) / @sizeOf(usize);
-                var read_bytes: u64 = 0;
-                for (0..word_count) |i| {
-                    // read a word
-                    // TODO: is there a way to do this with fewer syscalls?
-                    try std.posix.ptrace(
-                        std.os.linux.PTRACE.PEEKDATA,
-                        child_pid,
-                        regs.rsi + (i * @sizeOf(usize)),
-                        @intFromPtr(&word_buf),
-                    );
-                    _ = try writer.write(1, word_buf[0..@min(regs.rdx - read_bytes, @sizeOf(usize))]);
-                    read_bytes = read_bytes + @sizeOf(usize); // this is wrong for the last word, but it is fine, because we will break out of the loop
-                }
-            },
-            else => {},
+                    var word_buf: [@sizeOf(usize)]u8 = undefined;
+                    const word_count = 1 + (syscall_info.unnamed_0.entry.args[2] - 1) / @sizeOf(usize);
+                    var read_bytes: u64 = 0;
+                    for (0..word_count) |i| {
+                        // read a word
+                        // TODO: is there a way to do this with fewer syscalls?
+                        // I might use process_vm_readv, but it seems to be only available in 5.10+.
+                        try std.posix.ptrace(
+                            std.os.linux.PTRACE.PEEKDATA,
+                            child_pid,
+                            syscall_info.unnamed_0.entry.args[1] + (i * @sizeOf(usize)),
+                            @intFromPtr(&word_buf),
+                        );
+                        _ = try writer.write(1, word_buf[0..@min(syscall_info.unnamed_0.entry.args[2] - read_bytes, @sizeOf(usize))]);
+                        read_bytes = read_bytes + @sizeOf(usize); // this is wrong for the last word, but it is fine, because we will break out of the loop
+                    }
+                },
+                else => {},
+            }
         }
+
         const forked = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_FORK << 8));
         const vforked = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_VFORK << 8));
         const cloned = wait_result.status >> 8 == (c.SIGTRAP | (c.PTRACE_EVENT_CLONE << 8));
