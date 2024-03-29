@@ -8,7 +8,7 @@ pcat (process cat) is a simple tool for cat'ing the stdout and stderr of a proce
 
 - Trace a child process
 - Trace other processes by pid (requires root)
-- Follow forked and cloned processes (WIP)
+- Follow forked and cloned processes
 
 ## Quick Start
 
