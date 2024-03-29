@@ -4,12 +4,6 @@ pcat (process cat) is a simple tool for cat'ing the stdout and stderr of a proce
 
 [![asciicast](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo.svg)](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo)
 
-## Features
-
-- Trace a child process
-- Trace other processes by pid (requires root)
-- Follow forked and cloned processes
-
 ## Quick Start
 
 ```bash
@@ -22,11 +16,11 @@ zig build
 ## Usage
 
 ```bash
-./zig-out/bin/pcat -p PID
+pcat -p PID
 ```
 
 ```bash
-./zig-out/bin/pcat COMMAND [ARGS...]
+pcat COMMAND [ARGS...]
 ```
 
 ## Example
