@@ -98,6 +98,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
     const first_wait_result = try waitpid(-1, std.os.linux.W.UNTRACED); // TODO why UNTRACED?
     try pending_pids.put(first_wait_result.pid, void{});
     // NOTE: SETOPTIONS should be done after wait (when child process is stopped?)
+    // NOTE: SETOPTIONS is only called once by strace.
     logger.debug("initial wait pid returned pid={} status={b}", .{ first_wait_result.pid, first_wait_result.status });
     try std.os.ptrace(
         std.os.linux.PTRACE.SETOPTIONS,
@@ -129,8 +130,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
         var child_pid: std.os.pid_t = 0;
         var wait_result: std.os.WaitPidResult = undefined;
         while (true) {
-            // TODO: check which child is ready for a PTRACE.SYSCALL?
-            wait_result = try waitpid(-1, c.WNOHANG);
+            wait_result = try waitpid(-1, 0);
             logger.debug("trying waitpid(-1) returned pid={} status={b}", .{ wait_result.pid, wait_result.status });
             if (wait_result.pid != 0) {
                 child_pid = wait_result.pid;
@@ -166,6 +166,7 @@ pub fn runTracer(allocator: std.mem.Allocator, original_child_pid: std.os.pid_t,
             return;
         }
 
+        // TODO: GETREGS is not used by strace apparently, it is using the newer PTRACE_GET_SYSCALL_INFO instead
         var regs: c.user_regs_struct = undefined;
         try std.os.ptrace(std.os.linux.PTRACE.GETREGS, child_pid, 0, @intFromPtr(&regs));
 
@@ -242,6 +243,7 @@ fn runChild(program: [*:0]const u8, argv_slice: [][*:0]const u8) !void {
     const envp: [*:null]?[*:0]const u8 = @ptrCast(std.os.environ.ptr);
 
     try std.os.ptrace(std.os.linux.PTRACE.TRACEME, 0, 0, 0);
+    // NOTE: strace also performs a raise(SIGSTOP) only once
     try std.os.raise(std.os.linux.SIG.STOP);
     const err = std.os.execvpeZ(program, &argv, envp);
 
