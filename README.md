@@ -13,10 +13,10 @@ pcat COMMAND [ARGS...]
 
 ## Example
 
-### Monitor child process
+### Monitor new process
 
 ```bash
-./zig-out/bin/pcat ping localhost
+pcat ping localhost
 ```
 
 ### Monitor existing process
@@ -28,7 +28,7 @@ ping localhost > /dev/null
 
 ```bash
 # terminal 2
-sudo ./zig-out/bin/pcat -p $(ps -C "ping" -o pid= | head -1)
+sudo pcat -p $(ps -C "ping" -o pid= | head -1)
 64 bytes from localhost (::1): icmp_seq=1 ttl=64 time=0.058 ms
 64 bytes from localhost (::1): icmp_seq=2 ttl=64 time=0.067 ms
 ...
