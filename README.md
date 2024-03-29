@@ -16,6 +16,9 @@ pcat (process cat) is a simple tool for cat'ing the stdout and stderr of a proce
 zig build
 ```
 
+* Requires Linux kernel 5.3 or later (2019), but let me know if you need support for older kernels. I just need to bring back the code removed in https://github.com/siadat/pcat/commit/ceedab194d6beddb7f01d3f6039261c3ec88db77
+* Tested with Zig version 0.12.0-dev.3496+a2df84d0f
+
 ## Usage
 
 ```bash
