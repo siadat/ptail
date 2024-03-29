@@ -1,4 +1,3 @@
-// 0.12.0-dev.3496+a2df84d0f
 const std = @import("std");
 const c = @cImport({
     @cInclude("signal.h");
