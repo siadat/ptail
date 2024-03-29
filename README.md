@@ -2,9 +2,9 @@
 
 pcat (process cat) is a simple tool for cat'ing the stdout and stderr of a process.
 
-[![asciicast](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo.svg)](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo)
-
 ## Usage
+
+There are two ways to use pcat (similarly to strace): with PID, or directly with the command you want to inspect.
 
 ```bash
 pcat -p PID
@@ -36,6 +36,10 @@ sudo ./zig-out/bin/pcat -p $(ps -C "ping" -o pid= | head -1)
 64 bytes from localhost (::1): icmp_seq=2 ttl=64 time=0.067 ms
 ...
 ```
+
+### Asciinema
+
+[![asciicast](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo.svg)](https://asciinema.org/a/AnISVmtu2NVEs8ssFqQ8XVYEo)
 
 ## Quick Start
 
