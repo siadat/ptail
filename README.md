@@ -1,4 +1,4 @@
-# 🐈 pcat
+# pcat
 
 pcat (process cat) is a simple tool for cat'ing the stdout and stderr of a process.
 
