@@ -62,7 +62,7 @@ const FileLogger = struct {
     file: std.fs.File,
 
     fn init(child_pid: std.posix.pid_t) !Self {
-        const file = try std.fs.cwd().createFile("/home/sina/src/pcat/debug.log", .{});
+        const file = try std.fs.cwd().createFile("/home/sina/src/ptail/debug.log", .{});
         return Self{
             .file = file,
             .child_pid = child_pid,
