@@ -14,10 +14,10 @@ There are two ways to use ptail (similarly to strace): ptail an exiting process 
 
 ```bash
 # new process
-ptail COMMAND [ARGS...]
+./zig-out/bin/ptail COMMAND [ARGS...]
 
 # exiting process
-sudo ptail -p PID
+sudo ./zig-out/bin/ptail -p PID
 ```
 
 ## Example
@@ -25,7 +25,7 @@ sudo ptail -p PID
 ### Monitor new process
 
 ```bash
-ptail /usr/bin/bash -c 'ping localhost > /dev/null'
+./zig-out/bin/ptail /usr/bin/bash -c 'ping localhost > /dev/null'
 ```
 
 ### Monitor existing process
@@ -37,7 +37,7 @@ ping localhost > /dev/null
 
 ```bash
 # terminal 2
-sudo ptail -p $(ps -C "ping" -o pid= | head -1)
+sudo ./zig-out/bin/ptail -p $(ps -C "ping" -o pid= | head -1)
 64 bytes from localhost (::1): icmp_seq=1 ttl=64 time=0.058 ms
 64 bytes from localhost (::1): icmp_seq=2 ttl=64 time=0.067 ms
 ...
