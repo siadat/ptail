@@ -5,7 +5,7 @@ Think of it as tail -f for the output of a process.
 
 When would it be useful?
 
-1. There are situations in which the stdout and stderr of a process are captured and not shown. For example, `zig build test` captures stdout and stderr of processes and does not show them until the end of tests.
+1. There are situations in which the stdout and stderr of a process are captured and not shown. For example, `zig build test` with [.test_server_mode](https://sourcegraph.com/github.com/ziglang/zig@b88ae8dbd84886d3b9b26509034720f755a0e28a/-/blob/lib/std/Build/Step/Compile.zig?L59:1-59:17) captures stdout and stderr of processes and does not show them until the end of tests.
 If tests are hanging (eg blocked) nothing is shown and you cannot do printf debugging. You can use the following command to see the output of the tests as they are running:
 ```
 ./zig-out/bin/ptail /usr/bin/bash -c 'zig build test'
