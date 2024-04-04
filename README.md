@@ -8,12 +8,12 @@ When would it be useful?
 1. There are situations in which the stdout and stderr of a process are captured and not shown. For example, `zig build test` captures stdout and stderr of processes and does not show them until the end of tests.
 If tests are hanging (eg blocked) nothing is shown. You can use the following command to see the output of the tests as they are running:
 ```
-./zig-out/bin/pcat bash -c 'zig build test'
+./zig-out/bin/ptail bash -c 'zig build test'
 ```
 
 2. The process is running in the background and its stdout is either not written to disk, or you don't know where it is. For example, you can inspect what your language server (eg zls) is printing with the following command:
 ```
-sudo ./zig-out/bin/pcat -p $(ps -C "zls" -o pid= | head -1)
+sudo ./zig-out/bin/ptail -p $(ps -C "zls" -o pid= | head -1)
 ```
 
 ## Usage
