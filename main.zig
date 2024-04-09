@@ -252,6 +252,12 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     var pid_arg: ?i32 = null;
+    if (std.os.argv.len == 1) {
+        std.debug.print("Usage 1: ptail -p PID\n", .{});
+        std.debug.print("Usage 2: ptail PROGRAM [ARGS...]\n", .{});
+        return;
+    }
+
     if (std.os.argv.len == 3) {
         if (std.mem.eql(u8, std.mem.sliceTo(std.os.argv[1], 0), "-p")) {
             pid_arg = try std.fmt.parseInt(i32, std.mem.sliceTo(std.os.argv[2], 0), 10);

@@ -22,7 +22,7 @@ There are two ways to use ptail (similarly to strace): ptail an exiting process 
 
 ```bash
 # new process
-./zig-out/bin/ptail COMMAND [ARGS...]
+./zig-out/bin/ptail PROGRAM [ARGS...]
 
 # exiting process
 sudo ./zig-out/bin/ptail -p PID
@@ -64,3 +64,8 @@ zig build
 * Requires Linux kernel 5.3 or later, but let me know if you need support for older kernels. We just need to bring back the code removed in [commit/ceedab19](https://github.com/siadat/ptail/commit/ceedab194d6beddb7f01d3f6039261c3ec88db77?diff=split&w=1) for systems where PTRACE_SYSCALL_INFO_EXIT is not available.
 * Tested with Zig version 0.12.0-dev.3496+a2df84d0f
 
+## Test
+
+```bash
+zig build test
+```
