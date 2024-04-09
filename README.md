@@ -18,12 +18,14 @@ sudo ./zig-out/bin/ptail -p $(ps -C "zls" -o pid= | head -1)
 
 ## Usage
 
-There are two ways to use ptail (similarly to strace): ptail an exiting process (with PID), or ptail a new process (with a command).
+There are two ways to use ptail (similar to strace): ptail a new process (with a given program), or ptail an exiting process (with PID).
 
 ```bash
 # new process
 ./zig-out/bin/ptail PROGRAM [ARGS...]
+```
 
+```bash
 # exiting process
 sudo ./zig-out/bin/ptail -p PID
 ```
