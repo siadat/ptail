@@ -59,7 +59,7 @@ sudo ./zig-out/bin/ptail -p $(ps -C "ping" -o pid= | head -1)
 
 ## Build
 
-```bash
+```
 zig build
 ```
 
@@ -68,6 +68,6 @@ zig build
 
 ## Test
 
-```bash
+```
 zig build test
 ```
